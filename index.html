@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torneo del Potere: Online Arena</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: #000010 url('https://www.transparenttextures.com/patterns/stardust.png');
+            color: #E0E0E0;
+            overflow-x: hidden;
+        }
+        .cosmic-narrator { filter: drop-shadow(0 0 15px #00d9ff); }
+        .arena {
+            background: radial-gradient(circle, rgba(41,0,74,0.8) 0%, rgba(15,0,28,0.7) 60%, rgba(0,0,0,0) 100%);
+            box-shadow: 0 0 40px #9f00ff, 0 0 80px #4a007a, inset 0 0 30px #4a007a;
+            animation: pulse-arena 5s infinite ease-in-out;
+        }
+        @keyframes pulse-arena { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+        .universe-stand { border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); transition: all 0.5s ease; }
+        .universe-stand.exploded { transform: scale(0.5) rotate(30deg); opacity: 0; filter: blur(10px); }
+        .modal-bg { background: rgba(0,0,0,0.95); backdrop-filter: blur(10px); }
+        .btn-primary { 
+            background: linear-gradient(45deg, #9f00ff, #00d9ff); 
+            font-weight: 900; text-transform: uppercase; letter-spacing: 2px; 
+            transition: all 0.3s ease; box-shadow: 0 0 10px #9f00ff;
+        }
+        .btn-primary:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 0 20px #00d9ff; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+        .zeno-glow { animation: zeno-flash 1s infinite alternate; }
+        @keyframes zeno-flash { from { text-shadow: 0 0 10px #ff00ea; } to { text-shadow: 0 0 30px #ff00ea, 0 0 50px #00d9ff; } }
+        
+        /* Chat Styles */
+        #chat-container { transition: transform 0.3s ease; }
+        #chat-container.collapsed { transform: translateY(calc(100% - 40px)); }
+        .chat-msg { animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #00d9ff; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4">
+
+    <!-- LOBBY SCREEN -->
+    <div id="lobby-screen" class="fixed inset-0 z-[200] bg-gray-900 flex flex-col items-center justify-center p-4">
+        <div class="bg-gray-800 p-8 rounded-2xl border-2 border-cyan-500 shadow-[0_0_50px_rgba(0,217,255,0.3)] max-w-md w-full text-center">
+            <h1 class="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400 mb-8 uppercase italic">Torneo del Potere<br><span class="text-xl text-white not-italic tracking-widest">Online Edition</span></h1>
+            
+            <div class="mb-6 space-y-4">
+                <div class="flex justify-center mb-4">
+                    <img id="lobby-avatar-preview" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Goku" class="w-24 h-24 rounded-full border-4 border-purple-500 bg-black">
+                </div>
+                <input type="text" id="nickname-input" placeholder="Il tuo Nickname" class="w-full bg-gray-700 p-3 rounded text-center font-bold outline-none focus:ring-2 ring-cyan-500" maxlength="12">
+                <div class="flex gap-2 justify-center">
+                    <button class="text-xs text-gray-400 hover:text-white" onclick="randomizeAvatar()">Cambia Avatar</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <button class="btn-primary py-3 rounded-lg" onclick="createRoom()">Crea Stanza</button>
+                <div class="flex gap-2">
+                    <input type="text" id="room-code-input" placeholder="Codice" class="w-full bg-gray-700 rounded px-2 text-center uppercase font-mono tracking-widest outline-none border border-gray-600 focus:border-cyan-500">
+                    <button class="bg-gray-700 hover:bg-gray-600 px-3 rounded border border-gray-600" onclick="joinRoom()">Entra</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UI DI GIOCO -->
+    <div id="game-ui" class="hidden w-full h-full">
+        
+        <!-- Info Stanza -->
+        <div class="fixed top-4 left-4 z-50 bg-black/60 backdrop-blur p-2 rounded border border-cyan-500/30 flex items-center gap-3">
+            <div class="text-left">
+                <p class="text-[10px] text-gray-400 uppercase">Stanza</p>
+                <p id="room-code-display" class="font-mono font-bold text-cyan-400 text-xl tracking-widest">----</p>
+            </div>
+            <div class="h-8 w-px bg-gray-600"></div>
+            <div class="text-left">
+                <p class="text-[10px] text-gray-400 uppercase">Giocatori</p>
+                <p id="player-count-display" class="font-bold text-white">1</p>
+            </div>
+        </div>
+
+        <!-- Narratore -->
+        <div id="narrator" class="fixed top-4 left-1/2 -translate-x-1/2 z-40 text-center w-full max-w-lg pointer-events-none">
+            <img src="https://placehold.co/150x150/000000/00d9ff?text=GS" alt="Narratore" class="w-16 h-16 mx-auto rounded-full cosmic-narrator mb-1 bg-black border border-cyan-500">
+            <p id="narrator-text" class="text-sm md:text-base font-bold text-cyan-300 uppercase px-4 py-1 bg-black/60 rounded-full inline-block backdrop-blur">In attesa dell'Host...</p>
+        </div>
+
+        <!-- Area di Gioco -->
+        <div id="game-container" class="w-full max-w-7xl mx-auto mt-28 md:mt-32 px-4 pb-24">
+            
+            <!-- Arena Centrale -->
+            <div id="arena" class="arena w-full aspect-video md:aspect-[3/1] max-w-4xl mx-auto flex items-center justify-center rounded-full p-8 mb-8 relative overflow-hidden transition-all duration-1000">
+                <div id="challenge-display" class="text-center z-10">
+                    <h2 class="text-xl md:text-3xl font-black mb-2 uppercase tracking-tighter text-purple-400">Arena del Vuoto</h2>
+                    <p id="arena-status" class="text-sm text-gray-400 mb-4">I guerrieri si stanno preparando.</p>
+                    
+                    <!-- Solo Host vede questo -->
+                    <div id="host-controls" class="hidden">
+                        <button id="start-round-btn" class="btn-primary py-2 px-6 text-sm" onclick="startRound()">Inizia Sfida</button>
+                    </div>
+                    <!-- Client vede questo -->
+                    <div id="client-waiting" class="hidden">
+                        <p class="animate-pulse text-cyan-500 font-bold uppercase text-xs tracking-widest">In attesa dell'Host...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spalti -->
+            <div id="stands" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Generato via JS -->
+            </div>
+        </div>
+
+        <!-- CHAT -->
+        <div id="chat-container" class="fixed bottom-0 right-4 w-72 md:w-80 h-96 bg-gray-900 border-t-2 border-x-2 border-cyan-500 rounded-t-lg z-50 flex flex-col shadow-2xl">
+            <div class="h-10 bg-gray-800 flex items-center justify-between px-3 cursor-pointer hover:bg-gray-700 transition-colors" onclick="toggleChat()">
+                <span class="font-bold text-sm text-cyan-400 uppercase tracking-widest">Comms Universo 7</span>
+                <span id="chat-toggle-icon">▼</span>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2 bg-black/50"></div>
+            <form id="chat-form" class="h-12 bg-gray-800 flex p-1 gap-1" onsubmit="sendChat(event)">
+                <input type="text" id="chat-input" class="flex-1 bg-gray-700 rounded px-2 text-sm outline-none text-white placeholder-gray-500" placeholder="Messaggio...">
+                <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 px-3 rounded text-white font-bold">></button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODALE SETUP (Solo Host) -->
+    <div id="setup-modal" class="fixed inset-0 z-[100] modal-bg flex items-center justify-center hidden p-4">
+        <div class="bg-gray-800 w-full max-w-5xl h-[80vh] rounded-xl border border-purple-500 flex flex-col p-6 shadow-2xl">
+            <h2 class="text-3xl font-black text-center text-purple-400 uppercase mb-2">Configurazione Torneo</h2>
+            <div id="setup-container" class="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-2 mb-4 bg-black/20 rounded"></div>
+            <div class="flex justify-between mt-auto pt-4 border-t border-gray-700">
+                <button class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm font-bold" onclick="addUniverseSetup()">+ Universo</button>
+                <button class="btn-primary py-2 px-8 rounded" onclick="finalizeSetup()">Avvia Torneo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE ATTESA SETUP (Solo Client) -->
+    <div id="waiting-setup-modal" class="fixed inset-0 z-[100] modal-bg flex items-center justify-center hidden">
+        <div class="text-center">
+            <div class="w-16 h-16 border-4 border-t-cyan-500 border-r-purple-500 border-b-yellow-500 border-l-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h2 class="text-2xl font-black text-white uppercase">L'Host sta configurando...</h2>
+            <p class="text-gray-400 mt-2">Preparati, il torneo inizierà a breve.</p>
+        </div>
+    </div>
+
+    <!-- MODALE SFIDA / VOTAZIONE -->
+    <div id="challenge-modal" class="fixed inset-0 z-[150] modal-bg flex items-center justify-center hidden p-4">
+        <div class="w-full max-w-5xl text-center">
+            <div id="event-badge" class="hidden inline-block bg-yellow-500 text-black font-black px-3 py-1 rounded text-xs mb-4 uppercase">Evento Speciale</div>
+            <h2 id="challenge-title" class="text-4xl md:text-6xl font-black text-white uppercase italic mb-8 drop-shadow-[0_0_10px_rgba(255,0,0,0.8)]">VOTA IL VINCITORE!</h2>
+            
+            <div id="challenge-content" class="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16">
+                <!-- Sfidanti iniettati via JS -->
+            </div>
+
+            <div class="mt-8 bg-black/50 inline-block px-6 py-2 rounded-full border border-gray-600">
+                <p class="text-xs uppercase text-gray-400 mb-1">Stato Votazioni</p>
+                <div class="flex items-center gap-4">
+                    <div class="flex -space-x-2" id="voters-avatars"></div>
+                    <span id="vote-count-text" class="font-bold text-cyan-400">0 voti</span>
+                </div>
+            </div>
+
+            <!-- Controlli Host per chiudere il voto -->
+            <div id="host-vote-controls" class="hidden mt-8">
+                <button class="btn-primary py-3 px-12 bg-gradient-to-r from-red-600 to-orange-600 shadow-red-500/50" onclick="concludeVoting()">CHIUDI TELEVOTO & ELIMINA</button>
+            </div>
+             <p id="client-vote-msg" class="hidden mt-8 text-sm text-gray-400 animate-pulse">In attesa della decisione dell'Host...</p>
+        </div>
+    </div>
+
+    <!-- MODALE VINCITORE -->
+    <div id="winner-modal" class="fixed inset-0 z-[160] bg-black flex items-center justify-center hidden p-4">
+        <div id="winner-content" class="text-center w-full max-w-4xl"></div>
+    </div>
+
+    <!-- FIREBASE & GAME LOGIC -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+        // CONFIGURAZIONE FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyDN5IegCvW1L3wIfJFQkSAY31F8AbqZFFE",
+            authDomain: "torneo-del-potere-preferenze.firebaseapp.com",
+            projectId: "torneo-del-potere-preferenze",
+            storageBucket: "torneo-del-potere-preferenze.firebasestorage.app",
+            messagingSenderId: "1097063532606",
+            appId: "1:1097063532606:web:5e015655b628b21e83a96f",
+            measurementId: "G-GCZT6DX4T2"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // STATO LOCALE
+        let currentUser = null;
+        let currentRoomId = null;
+        let isHost = false;
+        let localGameData = { universes: [] };
+        let localPlayers = {};
+        
+        // UTILS
+        const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        const randomAvatar = () => `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`;
+
+        // ESPOSIZIONE FUNZIONI GLOBALI (per onclick nell'HTML)
+        window.randomizeAvatar = () => {
+            document.getElementById('lobby-avatar-preview').src = randomAvatar();
+        };
+
+        window.toggleChat = () => {
+            document.getElementById('chat-container').classList.toggle('collapsed');
+        };
+
+        // --- AUTHENTICATION ---
+        signInAnonymously(auth).catch((error) => {
+            console.error("Auth Error", error);
+            alert("Errore di connessione a Firebase. Controlla la console.");
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                console.log("Logged in as", user.uid);
+            }
+        });
+
+        // --- ROOM LOGIC ---
+
+        window.createRoom = async () => {
+            const nickname = document.getElementById('nickname-input').value.trim() || "Host";
+            const avatar = document.getElementById('lobby-avatar-preview').src;
+            const roomId = generateRoomCode();
+
+            try {
+                // Crea stanza
+                await setDoc(doc(db, "rooms", roomId), {
+                    hostId: currentUser.uid,
+                    status: 'setup', // setup, playing, ended
+                    gameData: null, // Sarà popolato dopo il setup
+                    currentChallenge: null,
+                    createdAt: serverTimestamp()
+                });
+
+                // Aggiungi player
+                await joinRoomLogic(roomId, nickname, avatar, true);
+            } catch (e) {
+                console.error(e);
+                alert("Errore creazione stanza: " + e.message);
+            }
+        };
+
+        window.joinRoom = async () => {
+            const nickname = document.getElementById('nickname-input').value.trim() || "Spettatore";
+            const avatar = document.getElementById('lobby-avatar-preview').src;
+            const roomId = document.getElementById('room-code-input').value.trim().toUpperCase();
+
+            if(!roomId) return alert("Inserisci un codice stanza!");
+
+            const roomRef = doc(db, "rooms", roomId);
+            const roomSnap = await getDoc(roomRef);
+
+            if (!roomSnap.exists()) return alert("Stanza non trovata!");
+
+            await joinRoomLogic(roomId, nickname, avatar, false);
+        };
+
+        async function joinRoomLogic(roomId, nickname, avatar, hostStatus) {
+            currentRoomId = roomId;
+            isHost = hostStatus;
+
+            // Salva info player
+            await setDoc(doc(db, "rooms", roomId, "players", currentUser.uid), {
+                nickname,
+                avatar,
+                isHost,
+                joinedAt: serverTimestamp(),
+                vote: null // Reset voto
+            });
+
+            // UI Switch
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('game-ui').classList.remove('hidden');
+            document.getElementById('room-code-display').textContent = roomId;
+
+            // Init Listeners
+            initGameListeners();
+        }
+
+        function initGameListeners() {
+            // Ascolta cambiamenti stanza
+            onSnapshot(doc(db, "rooms", currentRoomId), (doc) => {
+                if(!doc.exists()) return; // Stanza cancellata
+                const data = doc.data();
+                
+                handleGameState(data);
+            });
+
+            // Ascolta giocatori (per conteggio e lista voti)
+            onSnapshot(collection(db, "rooms", currentRoomId, "players"), (snapshot) => {
+                const players = [];
+                snapshot.forEach(doc => {
+                    players.push({id: doc.id, ...doc.data()});
+                    localPlayers[doc.id] = doc.data();
+                });
+                document.getElementById('player-count-display').textContent = players.length;
+                updateVoteUI(players); // Aggiorna UI voti se il modale è aperto
+            });
+
+            // Ascolta Chat
+            onSnapshot(collection(db, "rooms", currentRoomId, "chat"), (snapshot) => {
+                const msgContainer = document.getElementById('chat-messages');
+                msgContainer.innerHTML = '';
+                const msgs = [];
+                snapshot.forEach(doc => msgs.push(doc.data()));
+                msgs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                
+                msgs.forEach(msg => {
+                    const div = document.createElement('div');
+                    div.className = "chat-msg text-xs mb-1";
+                    div.innerHTML = `<span class="font-bold text-cyan-400">${msg.sender}:</span> <span class="text-white">${msg.message}</span>`;
+                    msgContainer.appendChild(div);
+                });
+                msgContainer.scrollTop = msgContainer.scrollHeight;
+            });
+        }
+
+        // --- GAME STATE MANAGER ---
+
+        function handleGameState(data) {
+            // Aggiorna dati locali se presenti
+            if (data.gameData) {
+                localGameData = JSON.parse(data.gameData); // Firestore salva oggetti, ma per sicurezza deep copy o stringify
+                renderStands();
+            }
+
+            // Gestione Fasi
+            if (data.status === 'setup') {
+                if (isHost) {
+                    document.getElementById('setup-modal').classList.remove('hidden');
+                    // Inizializza form setup se vuoto (solo prima volta)
+                    if (document.getElementById('setup-container').children.length === 0) {
+                        initHostSetup();
+                    }
+                } else {
+                    document.getElementById('waiting-setup-modal').classList.remove('hidden');
+                }
+            } else if (data.status === 'playing') {
+                document.getElementById('setup-modal').classList.add('hidden');
+                document.getElementById('waiting-setup-modal').classList.add('hidden');
+                
+                // Aggiorna controlli
+                if (isHost) {
+                    document.getElementById('host-controls').classList.remove('hidden');
+                } else {
+                    document.getElementById('client-waiting').classList.remove('hidden');
+                }
+
+                // Gestione Sfida Attiva
+                if (data.currentChallenge) {
+                    openChallengeModal(data.currentChallenge);
+                } else {
+                    document.getElementById('challenge-modal').classList.add('hidden');
+                }
+            } else if (data.status === 'ended') {
+                showWinnerScreen();
+            }
+
+            // Narratore
+            if (data.narratorText) {
+                document.getElementById('narrator-text').textContent = data.narratorText;
+            }
+        }
+
+        // --- HOST LOGIC (SETUP) ---
+        
+        function initHostSetup() {
+            // Crea 4 universi di default
+            addUniverseSetupUI("Universo 7", "https://i.imgur.com/t4tA2p7.png", "#f27c00");
+            addUniverseSetupUI("Universo 6", "https://i.imgur.com/9iBq25B.png", "#8cff00");
+            addUniverseSetupUI("Universo 11", "https://i.imgur.com/JOFy144.png", "#c4c4c4");
+            addUniverseSetupUI("Universo 2", "https://i.imgur.com/y33n4mD.png", "#ff00d4");
+        }
+
+        // Funzioni UI per il setup (simili alla versione offline ma dentro il modale)
+        window.addUniverseSetup = () => addUniverseSetupUI(); 
+        
+        function addUniverseSetupUI(name = `Universo`, img = "", color = "#555555") {
+             const id = Date.now() + Math.random();
+             const html = `
+                <div class="uni-setup-item bg-gray-900 p-3 rounded border border-gray-700" id="setup-${id}">
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" class="uni-name w-full bg-gray-800 text-white px-2 py-1 rounded" value="${name}">
+                        <input type="color" class="uni-color" value="${color}">
+                    </div>
+                    <input type="text" class="uni-img w-full bg-gray-800 text-gray-400 px-2 py-1 rounded text-xs mb-2" value="${img}" placeholder="URL Immagine">
+                    <div class="char-grid grid grid-cols-3 gap-1 mb-2"></div>
+                    <button class="text-xs text-cyan-400" onclick="addCharSetupUI('${id}')">+ Guerriero</button>
+                    <button class="text-xs text-red-500 float-right" onclick="document.getElementById('setup-${id}').remove()">Rimuovi Uni</button>
+                </div>
+             `;
+             document.getElementById('setup-container').insertAdjacentHTML('beforeend', html);
+             // Aggiungi 3 char di base
+             for(let i=0; i<3; i++) addCharSetupUI(id);
+        }
+
+        window.addCharSetupUI = (uniId) => {
+            const container = document.getElementById(`setup-${uniId}`).querySelector('.char-grid');
+            const html = `
+                <div class="char-item bg-black/30 p-1 rounded text-center">
+                    <input type="text" class="char-img w-full bg-transparent text-[8px] border-b border-gray-700 text-gray-500 mb-1" placeholder="URL Img">
+                    <input type="text" class="char-name w-full bg-transparent text-[10px] text-white text-center" placeholder="Nome">
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', html);
+        }
+
+        window.finalizeSetup = async () => {
+            if(!isHost) return;
+            // Costruisci oggetto gameData dal DOM
+            const universes = [];
+            const setupItems = document.querySelectorAll('.uni-setup-item');
+            
+            setupItems.forEach((el, i) => {
+                const u = {
+                    id: `uni_${i}`,
+                    name: el.querySelector('.uni-name').value,
+                    image: el.querySelector('.uni-img').value || "https://placehold.co/100x100/1a1a2e/9f00ff?text=U",
+                    bgColor: el.querySelector('.uni-color').value,
+                    characters: [],
+                    eliminated: [],
+                    rank: 0
+                };
+                
+                el.querySelectorAll('.char-item').forEach((cEl, j) => {
+                    const cName = cEl.querySelector('.char-name').value || `Guerriero ${j+1}`;
+                    const cImg = cEl.querySelector('.char-img').value || "https://placehold.co/80x80/2a2a3e/ffffff?text=?";
+                    u.characters.push({
+                        id: `char_${i}_${j}`,
+                        name: cName,
+                        image: cImg,
+                        universeId: u.id,
+                        universeName: u.name,
+                        eliminations: 0,
+                        eliminationOrder: -1
+                    });
+                });
+                
+                if(u.characters.length > 0) universes.push(u);
+            });
+
+            if (universes.length < 2) return alert("Crea almeno 2 universi con guerrieri!");
+
+            // Salva su Firestore e cambia stato
+            await updateDoc(doc(db, "rooms", currentRoomId), {
+                gameData: JSON.stringify({ universes }), // Serializza per semplicità
+                status: 'playing',
+                narratorText: "Il Torneo del Potere ha inizio!"
+            });
+        };
+
+        // --- GAMEPLAY LOGIC ---
+
+        // Solo HOST chiama questo
+        window.startRound = async () => {
+            // Logica semplificata: Sceglie 2 random e apre la votazione
+            const activeUniverses = localGameData.universes.filter(u => u.characters.length > 0);
+            
+            if (activeUniverses.length < 2) {
+                // Fine torneo
+                await updateDoc(doc(db, "rooms", currentRoomId), { status: 'ended' });
+                return;
+            }
+
+            // Selezione casuale sfidanti
+            const u1 = activeUniverses[Math.floor(Math.random() * activeUniverses.length)];
+            const c1 = u1.characters[Math.floor(Math.random() * u1.characters.length)];
+            
+            const otherUniverses = activeUniverses.filter(u => u.id !== u1.id);
+            const u2 = otherUniverses[Math.floor(Math.random() * otherUniverses.length)];
+            const c2 = u2.characters[Math.floor(Math.random() * u2.characters.length)];
+
+            // Aggiorna Firestore con la sfida
+            await updateDoc(doc(db, "rooms", currentRoomId), {
+                currentChallenge: {
+                    c1: c1,
+                    c2: c2,
+                    type: 'normal',
+                    startTime: serverTimestamp()
+                },
+                narratorText: `Scontro: ${c1.name} (${u1.name}) VS ${c2.name} (${u2.name})`
+            });
+
+            // Resetta voti giocatori
+            // Nota: In un'app reale useremmo una Cloud Function o batch write per resettare tutti i voti.
+            // Qui ci fidiamo che i vecchi voti vengano sovrascritti o ignorati dalla UI.
+        };
+
+        function openChallengeModal(challengeData) {
+            const modal = document.getElementById('challenge-modal');
+            const container = document.getElementById('challenge-content');
+            
+            // Rendering sfidanti
+            container.innerHTML = `
+                ${renderChallengerCard(challengeData.c1, 'blue')}
+                <div class="text-4xl font-black text-white italic">VS</div>
+                ${renderChallengerCard(challengeData.c2, 'red')}
+            `;
+
+            document.getElementById('challenge-title').textContent = challengeData.type === 'normal' ? "CHI DEVE VINCERE?" : challengeData.type.toUpperCase();
+            
+            modal.classList.remove('hidden');
+
+            if(isHost) {
+                document.getElementById('host-vote-controls').classList.remove('hidden');
+                document.getElementById('client-vote-msg').classList.add('hidden');
+            } else {
+                document.getElementById('host-vote-controls').classList.add('hidden');
+                document.getElementById('client-vote-msg').classList.remove('hidden');
+            }
+        }
+
+        function renderChallengerCard(char, colorClass) {
+            const borderColor = colorClass === 'blue' ? 'border-cyan-500' : 'border-red-500';
+            const shadow = colorClass === 'blue' ? 'shadow-cyan-500/50' : 'shadow-red-500/50';
+            
+            return `
+                <div class="text-center group">
+                    <div class="w-48 h-48 md:w-64 md:h-64 rounded-xl border-4 ${borderColor} ${shadow} bg-black/40 flex items-center justify-center overflow-hidden mb-4 shadow-lg transition-transform hover:scale-105">
+                        <img src="${char.image}" class="max-w-full max-h-full object-contain">
+                    </div>
+                    <p class="text-2xl font-black text-white">${char.name}</p>
+                    <p class="text-gray-400 uppercase text-xs mb-4">${char.universeName}</p>
+                    <button class="btn-primary py-2 px-8 w-full" onclick="voteFor('${char.id}')">VOTA</button>
+                </div>
+            `;
+        }
+
+        // Action Voto (Per tutti)
+        window.voteFor = async (charId) => {
+            // Aggiorna il proprio documento player
+            await updateDoc(doc(db, "rooms", currentRoomId, "players", currentUser.uid), {
+                vote: charId
+            });
+            
+            // Feedback visivo (opzionale, es. disabilita bottoni)
+            const btns = document.querySelectorAll('#challenge-content button');
+            btns.forEach(b => {
+                b.textContent = "VOTO REGISTRATO";
+                b.disabled = true;
+            });
+        };
+
+        // Aggiorna UI Voti (chi ha votato)
+        function updateVoteUI(players) {
+            const avatarContainer = document.getElementById('voters-avatars');
+            if(!avatarContainer) return;
+            
+            avatarContainer.innerHTML = '';
+            let voteCount = 0;
+
+            // Filtra solo chi ha votato nell'attuale sessione (semplificazione)
+            // In produzione servirebbe un ID sfida per validare il voto
+            const voters = players.filter(p => p.vote); 
+            
+            voters.forEach(p => {
+                const img = document.createElement('img');
+                img.src = p.avatar;
+                img.className = "w-8 h-8 rounded-full border-2 border-white bg-black";
+                img.title = p.nickname;
+                avatarContainer.appendChild(img);
+                voteCount++;
+            });
+            document.getElementById('vote-count-text').textContent = `${voteCount} voti`;
+        }
+
+        // Solo HOST: Concludi e Calcola
+        window.concludeVoting = async () => {
+            if(!isHost) return;
+            
+            // 1. Leggi tutti i voti attuali
+            let votesC1 = 0;
+            let votesC2 = 0;
+            const c1Id = localGameData.universes.flatMap(u => u.characters).find(c => c.id === renderStands.currentChallengeId_c1)?.id; // Hacky way to get ID back if needed, but better read from DB state logic
+            
+            // Rileggiamo lo stato attuale della sfida dal DB per sicurezza
+            const roomSnap = await getDoc(doc(db, "rooms", currentRoomId));
+            const challenge = roomSnap.data().currentChallenge;
+            if(!challenge) return;
+
+            // Conta voti (leggendo da localPlayers che è syncato)
+            Object.values(localPlayers).forEach(p => {
+                if(p.vote === challenge.c1.id) votesC1++;
+                if(p.vote === challenge.c2.id) votesC2++;
+            });
+
+            // Determina vincitore (se pareggio, random o vince C1)
+            let winner = votesC1 >= votesC2 ? challenge.c1 : challenge.c2;
+            let loser = votesC1 >= votesC2 ? challenge.c2 : challenge.c1;
+
+            // Logica eliminazione (aggiorna localGameData e poi pusha)
+            const updatedUniverses = [...localGameData.universes];
+            
+            // Trova universo perdente e rimuovi char
+            const loserUni = updatedUniverses.find(u => u.id === loser.universeId);
+            const loserCharIndex = loserUni.characters.findIndex(c => c.id === loser.id);
+            if(loserCharIndex > -1) {
+                const [eliminatedChar] = loserUni.characters.splice(loserCharIndex, 1);
+                loserUni.eliminated.push(eliminatedChar);
+            }
+
+            // Trova vincitore e incrementa kill
+            const winnerUni = updatedUniverses.find(u => u.id === winner.universeId);
+            const winnerChar = winnerUni.characters.find(c => c.id === winner.id);
+            if(winnerChar) winnerChar.eliminations = (winnerChar.eliminations || 0) + 1;
+
+            // Pusha update su DB e chiudi modale
+            await updateDoc(doc(db, "rooms", currentRoomId), {
+                gameData: JSON.stringify({ universes: updatedUniverses }),
+                currentChallenge: null,
+                narratorText: `${winner.name} vince con ${Math.max(votesC1, votesC2)} voti!`
+            });
+            
+            // Resetta voti per tutti
+             // (Opzionale: iterare su collection players e settare vote: null, per pulizia)
+        };
+
+
+        // --- RENDERING ---
+
+        function renderStands() {
+            const container = document.getElementById('stands');
+            container.innerHTML = localGameData.universes.map(u => {
+                const backgroundStyle = `background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), ${u.bgColor};`;
+                const isEliminated = u.characters.length === 0;
+                
+                return `
+                <div class="universe-stand p-4 ${isEliminated ? 'exploded border-red-900' : ''}" style="${backgroundStyle}">
+                    <div class="flex items-center gap-2 mb-3">
+                        <img src="${u.image}" class="w-10 h-10 rounded-full border border-white/20 object-contain bg-black/40">
+                        <h3 class="text-sm font-black text-white uppercase truncate">${u.name}</h3>
+                    </div>
+                    <p class="text-[10px] text-gray-400 mb-2 uppercase">Guerrieri: <span class="font-bold text-white">${u.characters.length}</span></p>
+                    <div class="grid grid-cols-4 gap-1">
+                         ${u.eliminated.map(c => `
+                            <div class="aspect-square bg-black/30 rounded border border-red-500/20 overflow-hidden relative">
+                                <img src="${c.image}" class="w-full h-full object-contain grayscale opacity-50">
+                            </div>
+                         `).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function showWinnerScreen() {
+            const modal = document.getElementById('winner-modal');
+            const winner = localGameData.universes.find(u => u.characters.length > 0);
+            
+            document.getElementById('winner-content').innerHTML = `
+                <h1 class="text-6xl font-black text-yellow-400 zeno-glow uppercase mb-8">TORNEO CONCLUSO</h1>
+                <h2 class="text-3xl text-white mb-8">VINCITORE: ${winner ? winner.name : 'NESSUNO'}</h2>
+                <button class="btn-primary" onclick="location.reload()">Torna alla Lobby</button>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        // --- CHAT SYSTEM ---
+        window.sendChat = async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if(!text) return;
+            
+            // Recupera nickname corrente (da localPlayers)
+            const myData = localPlayers[currentUser.uid];
+            const senderName = myData ? myData.nickname : "Anonimo";
+
+            await setDoc(doc(collection(db, "rooms", currentRoomId, "chat")), {
+                sender: senderName,
+                message: text,
+                timestamp: serverTimestamp()
+            });
+            
+            input.value = '';
+        };
+
+    </script>
+</body>
+</html>
