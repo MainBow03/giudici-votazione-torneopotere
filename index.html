@@ -35,6 +35,10 @@
         .zeno-glow { animation: zeno-flash 1s infinite alternate; }
         @keyframes zeno-flash { from { text-shadow: 0 0 10px #ff00ea; } to { text-shadow: 0 0 30px #ff00ea, 0 0 50px #00d9ff; } }
         
+        .selection-box { border: 4px solid #00d9ff; box-shadow: 0 0 30px #00d9ff; transform: scale(1.15); z-index: 50; background: rgba(0, 217, 255, 0.2); }
+        .selected-flash { animation: flash-selection 0.5s infinite alternate; border-color: #ff00ea !important; box-shadow: 0 0 40px #ff00ea !important; }
+        @keyframes flash-selection { from { opacity: 1; } to { opacity: 0.5; } }
+
         /* Chat Styles */
         #chat-container { transition: transform 0.3s ease; }
         #chat-container.collapsed { transform: translateY(calc(100% - 40px)); }
@@ -88,6 +92,12 @@
                 <p class="text-[10px] text-gray-400 uppercase">Giocatori</p>
                 <p id="player-count-display" class="font-bold text-white">1</p>
             </div>
+        </div>
+
+        <!-- Classifica Provvisoria -->
+        <div id="provisional-leaderboard" class="fixed top-5 right-5 z-50 bg-black/70 p-3 rounded-lg w-48 hidden border border-purple-500/30">
+            <h4 class="text-center text-[10px] font-bold mb-2 text-purple-300 uppercase">Classifica Team</h4>
+            <div id="provisional-list" class="space-y-1"></div>
         </div>
 
         <!-- Narratore -->
@@ -150,9 +160,7 @@
                 
                 <div class="flex-1 w-full md:w-auto">
                     <p class="text-gray-400 text-xs uppercase mb-1 text-center md:text-right">Lobby (<span id="lobby-count" class="text-white font-bold">1</span>)</p>
-                    <div id="lobby-players-list" class="flex flex-wrap justify-center md:justify-end gap-2 max-h-20 overflow-y-auto p-1">
-                        <!-- Players injected here -->
-                    </div>
+                    <div id="lobby-players-list" class="flex flex-wrap justify-center md:justify-end gap-2 max-h-20 overflow-y-auto p-1"></div>
                 </div>
             </div>
 
@@ -170,6 +178,15 @@
             <div class="w-16 h-16 border-4 border-t-cyan-500 border-r-purple-500 border-b-yellow-500 border-l-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <h2 class="text-2xl font-black text-white uppercase">L'Host sta configurando...</h2>
             <p class="text-gray-400 mt-2">Preparati, il torneo inizierà a breve.</p>
+        </div>
+    </div>
+
+    <!-- MODALE ANIMAZIONE SELEZIONE (SUSPENSE) -->
+    <div id="selection-modal" class="fixed inset-0 z-[140] modal-bg flex items-center justify-center hidden p-4">
+        <div id="selection-content" class="text-center w-full">
+            <h2 id="selection-title" class="text-3xl md:text-5xl font-black mb-8 uppercase text-cyan-400 italic">Estrazione...</h2>
+            <div id="universe-selector" class="flex flex-wrap justify-center gap-6 mb-12"></div>
+            <div id="character-selector" class="flex flex-wrap justify-center gap-4"></div>
         </div>
     </div>
 
@@ -231,6 +248,8 @@
         let isHost = false;
         let localGameData = { universes: [] };
         let localPlayers = {};
+        let localLastChallengeId = null; 
+        let currentChallengeId = null; 
         
         // UTILS
         const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -248,7 +267,6 @@
         // --- AUTHENTICATION ---
         signInAnonymously(auth).catch((error) => {
             console.error("Auth Error", error);
-            alert("Errore di connessione a Firebase. Controlla la console.");
         });
 
         onAuthStateChanged(auth, (user) => {
@@ -269,8 +287,8 @@
                 // Crea stanza
                 await setDoc(doc(db, "rooms", roomId), {
                     hostId: currentUser.uid,
-                    status: 'setup', // setup, playing, ended
-                    gameData: null, // Sarà popolato dopo il setup
+                    status: 'setup', 
+                    gameData: null, 
                     currentChallenge: null,
                     createdAt: serverTimestamp()
                 });
@@ -308,7 +326,7 @@
                 avatar,
                 isHost,
                 joinedAt: serverTimestamp(),
-                vote: null // Reset voto
+                voteData: null // Usiamo un oggetto { charId, challengeId } per validare i voti
             });
 
             // UI Switch
@@ -316,7 +334,6 @@
             document.getElementById('game-ui').classList.remove('hidden');
             document.getElementById('room-code-display').textContent = roomId;
             
-            // Aggiorna anche il codice nel modale di setup (se esiste)
             const setupCodeEl = document.getElementById('setup-modal-code');
             if(setupCodeEl) setupCodeEl.textContent = roomId;
 
@@ -327,9 +344,8 @@
         function initGameListeners() {
             // Ascolta cambiamenti stanza
             onSnapshot(doc(db, "rooms", currentRoomId), (doc) => {
-                if(!doc.exists()) return; // Stanza cancellata
+                if(!doc.exists()) return; 
                 const data = doc.data();
-                
                 handleGameState(data);
             });
 
@@ -342,7 +358,7 @@
                 });
                 document.getElementById('player-count-display').textContent = players.length;
                 updateVoteUI(players); 
-                updateLobbyUI(players); // Aggiorna la lobby nel setup
+                updateLobbyUI(players); 
             });
 
             // Ascolta Chat
@@ -365,18 +381,17 @@
 
         // --- GAME STATE MANAGER ---
 
-        function handleGameState(data) {
-            // Aggiorna dati locali se presenti
+        async function handleGameState(data) {
             if (data.gameData) {
-                localGameData = JSON.parse(data.gameData); // Firestore salva oggetti, ma per sicurezza deep copy o stringify
+                localGameData = JSON.parse(data.gameData);
                 renderStands();
+                updateLeaderboard(); 
             }
 
-            // Gestione Fasi
             if (data.status === 'setup') {
+                document.getElementById('provisional-leaderboard').classList.add('hidden');
                 if (isHost) {
                     document.getElementById('setup-modal').classList.remove('hidden');
-                    // Inizializza form setup se vuoto (solo prima volta)
                     if (document.getElementById('setup-container').children.length === 0) {
                         initHostSetup();
                     }
@@ -386,41 +401,155 @@
             } else if (data.status === 'playing') {
                 document.getElementById('setup-modal').classList.add('hidden');
                 document.getElementById('waiting-setup-modal').classList.add('hidden');
+                document.getElementById('provisional-leaderboard').classList.remove('hidden');
                 
-                // Aggiorna controlli
                 if (isHost) {
                     document.getElementById('host-controls').classList.remove('hidden');
                 } else {
                     document.getElementById('client-waiting').classList.remove('hidden');
                 }
 
-                // Gestione Sfida Attiva
                 if (data.currentChallenge) {
-                    openChallengeModal(data.currentChallenge);
+                    currentChallengeId = data.currentChallenge.id; // Sync ID corrente
+                    
+                    // Se è una sfida nuova, avvia l'animazione
+                    if (data.currentChallenge.id !== localLastChallengeId) {
+                        localLastChallengeId = data.currentChallenge.id;
+                        await playSelectionSequence(data.currentChallenge);
+                    } 
+                    
+                    // Assicura che il modale sia aperto se l'animazione è finita
+                    if (document.getElementById('selection-modal').style.display !== 'flex') {
+                        openChallengeModal(data.currentChallenge);
+                    }
                 } else {
+                    currentChallengeId = null;
                     document.getElementById('challenge-modal').classList.add('hidden');
+                    document.getElementById('selection-modal').style.display = 'none';
                 }
             } else if (data.status === 'ended') {
                 showWinnerScreen();
             }
 
-            // Narratore
             if (data.narratorText) {
                 document.getElementById('narrator-text').textContent = data.narratorText;
             }
         }
 
+        // --- ANIMATION & SUSPENSE LOGIC ---
+        
+        async function playSelectionSequence(challenge) {
+            const activeUniverses = localGameData.universes.filter(u => u.characters.length > 0);
+            if(activeUniverses.length === 0) return;
+
+            const modal = document.getElementById('selection-modal');
+            const uniSel = document.getElementById('universe-selector');
+            const charSel = document.getElementById('character-selector');
+            const title = document.getElementById('selection-title');
+            
+            // Reset visivo
+            document.getElementById('challenge-modal').classList.add('hidden');
+            modal.style.display = 'flex';
+            
+            // --- FASE 1: SFIDANTE 1 ---
+            title.textContent = "ESTRAZIONE: SFIDANTE 1";
+            uniSel.innerHTML = activeUniverses.map(u => `<img src="${u.image}" id="uni-sel-${u.id}" class="w-20 h-20 rounded-full border-4 border-transparent object-contain bg-black/20">`).join('');
+            charSel.innerHTML = '';
+
+            const uniEls = activeUniverses.map(u => document.getElementById(`uni-sel-${u.id}`));
+            await runSelectorAnimation(uniEls, challenge.c1.universeId); // Target U1
+            
+            // Mostra Guerrieri U1
+            const u1 = localGameData.universes.find(u => u.id === challenge.c1.universeId);
+            charSel.innerHTML = u1.characters.map(c => `
+                <div id="char-sel-${c.id}" class="text-center p-2 border-4 border-transparent">
+                    <img src="${c.image}" class="w-24 h-24 object-contain bg-black/20 rounded-lg">
+                    <p class="text-[10px] mt-1 uppercase font-bold text-white">${c.name}</p>
+                </div>`).join('');
+            const charEls = u1.characters.map(c => document.getElementById(`char-sel-${c.id}`));
+            await runSelectorAnimation(charEls, challenge.c1.id); // Target C1
+            
+            await new Promise(r => setTimeout(r, 1200)); // Pausa più lunga
+
+            // --- FASE 2: SFIDANTE 2 ---
+            title.textContent = "ESTRAZIONE: SFIDANTE 2";
+            uniSel.innerHTML = activeUniverses.map(u => `<img src="${u.image}" id="uni-sel-${u.id}" class="w-20 h-20 rounded-full border-4 border-transparent object-contain bg-black/20">`).join('');
+            charSel.innerHTML = '';
+            
+            const uniEls2 = activeUniverses.map(u => document.getElementById(`uni-sel-${u.id}`));
+            await runSelectorAnimation(uniEls2, challenge.c2.universeId); // Target U2
+            
+            const u2 = localGameData.universes.find(u => u.id === challenge.c2.universeId);
+             charSel.innerHTML = u2.characters.map(c => `
+                <div id="char-sel-${c.id}" class="text-center p-2 border-4 border-transparent">
+                    <img src="${c.image}" class="w-24 h-24 object-contain bg-black/20 rounded-lg">
+                    <p class="text-[10px] mt-1 uppercase font-bold text-white">${c.name}</p>
+                </div>`).join('');
+            const charEls2 = u2.characters.map(c => document.getElementById(`char-sel-${c.id}`));
+            await runSelectorAnimation(charEls2, challenge.c2.id); // Target C2
+
+            await new Promise(r => setTimeout(r, 1500));
+            
+            // Fine animazione
+            modal.style.display = 'none';
+            openChallengeModal(challenge);
+        }
+
+        function runSelectorAnimation(elements, targetId) {
+            return new Promise(resolve => {
+                let speed = 100; // Più lento per suspense
+                let i = 0;
+                let cycles = 0;
+                let last = null;
+                
+                function animate() {
+                    if (last) last.classList.remove('selection-box');
+                    
+                    const el = elements[i] || elements[0];
+                    if(!el) { resolve(); return; }
+
+                    el.classList.add('selection-box');
+                    last = el;
+                    
+                    i++;
+                    if (i >= elements.length) { 
+                        i = 0; 
+                        cycles++; 
+                    }
+                    
+                    if (cycles > 1) speed += 40; // Rallenta progressivamente
+                    
+                    if (speed > 500) {
+                        // Cerca target e ferma
+                        const targetEl = elements.find(e => e.id.endsWith(targetId));
+                        if(targetEl) {
+                            if (last) last.classList.remove('selection-box');
+                            targetEl.classList.add('selection-box', 'selected-flash'); // FLASH EFFECT
+                            setTimeout(() => {
+                                targetEl.classList.remove('selected-flash');
+                                resolve();
+                            }, 1000);
+                        } else {
+                             resolve();
+                        }
+                        return;
+                    }
+                    
+                    setTimeout(animate, speed);
+                }
+                animate();
+            });
+        }
+
         // --- HOST LOGIC (SETUP) ---
         
         function initHostSetup() {
-            // Crea 4 universi di default
             addUniverseSetupUI("Universo 7", "https://i.imgur.com/t4tA2p7.png", "#f27c00");
             addUniverseSetupUI("Universo 6", "https://i.imgur.com/9iBq25B.png", "#8cff00");
             addUniverseSetupUI("Universo 11", "https://i.imgur.com/JOFy144.png", "#c4c4c4");
             addUniverseSetupUI("Universo 2", "https://i.imgur.com/y33n4mD.png", "#ff00d4");
         }
 
-        // Funzioni UI per il setup (simili alla versione offline ma dentro il modale)
         window.addUniverseSetup = () => addUniverseSetupUI(); 
         
         function addUniverseSetupUI(name = `Universo`, img = "", color = "#555555") {
@@ -438,7 +567,6 @@
                 </div>
              `;
              document.getElementById('setup-container').insertAdjacentHTML('beforeend', html);
-             // Aggiungi 3 char di base
              for(let i=0; i<3; i++) addCharSetupUI(id);
         }
 
@@ -455,7 +583,6 @@
 
         window.finalizeSetup = async () => {
             if(!isHost) return;
-            // Costruisci oggetto gameData dal DOM
             const universes = [];
             const setupItems = document.querySelectorAll('.uni-setup-item');
             
@@ -489,9 +616,8 @@
 
             if (universes.length < 2) return alert("Crea almeno 2 universi con guerrieri!");
 
-            // Salva su Firestore e cambia stato
             await updateDoc(doc(db, "rooms", currentRoomId), {
-                gameData: JSON.stringify({ universes }), // Serializza per semplicità
+                gameData: JSON.stringify({ universes }), 
                 status: 'playing',
                 narratorText: "Il Torneo del Potere ha inizio!"
             });
@@ -501,16 +627,13 @@
 
         // Solo HOST chiama questo
         window.startRound = async () => {
-            // Logica semplificata: Sceglie 2 random e apre la votazione
             const activeUniverses = localGameData.universes.filter(u => u.characters.length > 0);
             
             if (activeUniverses.length < 2) {
-                // Fine torneo
                 await updateDoc(doc(db, "rooms", currentRoomId), { status: 'ended' });
                 return;
             }
 
-            // Selezione casuale sfidanti
             const u1 = activeUniverses[Math.floor(Math.random() * activeUniverses.length)];
             const c1 = u1.characters[Math.floor(Math.random() * u1.characters.length)];
             
@@ -518,9 +641,11 @@
             const u2 = otherUniverses[Math.floor(Math.random() * otherUniverses.length)];
             const c2 = u2.characters[Math.floor(Math.random() * u2.characters.length)];
 
-            // Aggiorna Firestore con la sfida
+            const challengeId = Date.now().toString();
+
             await updateDoc(doc(db, "rooms", currentRoomId), {
                 currentChallenge: {
+                    id: challengeId,
                     c1: c1,
                     c2: c2,
                     type: 'normal',
@@ -528,17 +653,16 @@
                 },
                 narratorText: `Scontro: ${c1.name} (${u1.name}) VS ${c2.name} (${u2.name})`
             });
-
-            // Resetta voti giocatori
-            // Nota: In un'app reale useremmo una Cloud Function o batch write per resettare tutti i voti.
-            // Qui ci fidiamo che i vecchi voti vengano sovrascritti o ignorati dalla UI.
         };
 
         function openChallengeModal(challengeData) {
             const modal = document.getElementById('challenge-modal');
             const container = document.getElementById('challenge-content');
             
-            // Rendering sfidanti
+            // RESET VOTE UI FORZATO
+            document.getElementById('voters-avatars').innerHTML = '';
+            document.getElementById('vote-count-text').textContent = '0 voti';
+
             container.innerHTML = `
                 ${renderChallengerCard(challengeData.c1, 'blue')}
                 <div class="text-4xl font-black text-white italic">VS</div>
@@ -556,6 +680,9 @@
                 document.getElementById('host-vote-controls').classList.add('hidden');
                 document.getElementById('client-vote-msg').classList.remove('hidden');
             }
+            
+            // Aggiorna subito lo stato voti (nel caso arrivi in ritardo)
+            updateVoteUI(Object.values(localPlayers));
         }
 
         function renderChallengerCard(char, colorClass) {
@@ -574,14 +701,16 @@
             `;
         }
 
-        // Action Voto (Per tutti)
         window.voteFor = async (charId) => {
-            // Aggiorna il proprio documento player
+            if (!currentChallengeId) return alert("Nessuna sfida attiva!");
+
             await updateDoc(doc(db, "rooms", currentRoomId, "players", currentUser.uid), {
-                vote: charId
+                voteData: {
+                    charId: charId,
+                    challengeId: currentChallengeId
+                }
             });
             
-            // Feedback visivo (opzionale, es. disabilita bottoni)
             const btns = document.querySelectorAll('#challenge-content button');
             btns.forEach(b => {
                 b.textContent = "VOTO REGISTRATO";
@@ -589,7 +718,6 @@
             });
         };
 
-        // Aggiorna UI Voti (chi ha votato)
         function updateVoteUI(players) {
             const avatarContainer = document.getElementById('voters-avatars');
             if(!avatarContainer) return;
@@ -597,11 +725,16 @@
             avatarContainer.innerHTML = '';
             let voteCount = 0;
 
-            // Filtra solo chi ha votato nell'attuale sessione (semplificazione)
-            // In produzione servirebbe un ID sfida per validare il voto
-            const voters = players.filter(p => p.vote); 
+            // Converto in array se è oggetto (fallback)
+            const playerArray = Array.isArray(players) ? players : Object.values(players);
+
+            // Filtra voti validi per la sfida CORRENTE
+            const validVoters = playerArray.filter(p => 
+                p.voteData && 
+                p.voteData.challengeId === currentChallengeId
+            ); 
             
-            voters.forEach(p => {
+            validVoters.forEach(p => {
                 const img = document.createElement('img');
                 img.src = p.avatar;
                 img.className = "w-8 h-8 rounded-full border-2 border-white bg-black";
@@ -612,19 +745,17 @@
             document.getElementById('vote-count-text').textContent = `${voteCount} voti`;
         }
 
-        // --- LOBBY UI UPDATE (NEW) ---
         function updateLobbyUI(players) {
             const list = document.getElementById('lobby-players-list');
             const count = document.getElementById('lobby-count');
-            // Check if element exists (it's inside setup modal)
             if(!list || !count) return;
 
             count.textContent = players.length;
             
-            // Sort: Host first, then others
-            players.sort((a,b) => (b.isHost ? 1 : 0) - (a.isHost ? 1 : 0));
+            const playerArray = Array.isArray(players) ? players : Object.values(players);
+            playerArray.sort((a,b) => (b.isHost ? 1 : 0) - (a.isHost ? 1 : 0));
 
-            list.innerHTML = players.map(p => `
+            list.innerHTML = playerArray.map(p => `
                 <div class="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-full border border-gray-600 animate-[fadeIn_0.3s_ease]">
                     <img src="${p.avatar}" class="w-6 h-6 rounded-full bg-black border border-gray-500">
                     <span class="text-xs font-bold text-gray-200 max-w-[100px] truncate">${p.nickname}</span>
@@ -633,59 +764,67 @@
             `).join('');
         }
 
-        // Solo HOST: Concludi e Calcola
         window.concludeVoting = async () => {
             if(!isHost) return;
             
-            // 1. Leggi tutti i voti attuali
-            let votesC1 = 0;
-            let votesC2 = 0;
-            const c1Id = localGameData.universes.flatMap(u => u.characters).find(c => c.id === renderStands.currentChallengeId_c1)?.id; // Hacky way to get ID back if needed, but better read from DB state logic
-            
-            // Rileggiamo lo stato attuale della sfida dal DB per sicurezza
             const roomSnap = await getDoc(doc(db, "rooms", currentRoomId));
             const challenge = roomSnap.data().currentChallenge;
             if(!challenge) return;
 
-            // Conta voti (leggendo da localPlayers che è syncato)
+            let votesC1 = 0;
+            let votesC2 = 0;
+            
             Object.values(localPlayers).forEach(p => {
-                if(p.vote === challenge.c1.id) votesC1++;
-                if(p.vote === challenge.c2.id) votesC2++;
+                if(p.voteData && p.voteData.challengeId === challenge.id) {
+                    if(p.voteData.charId === challenge.c1.id) votesC1++;
+                    if(p.voteData.charId === challenge.c2.id) votesC2++;
+                }
             });
 
-            // Determina vincitore (se pareggio, random o vince C1)
             let winner = votesC1 >= votesC2 ? challenge.c1 : challenge.c2;
             let loser = votesC1 >= votesC2 ? challenge.c2 : challenge.c1;
 
-            // Logica eliminazione (aggiorna localGameData e poi pusha)
             const updatedUniverses = [...localGameData.universes];
             
-            // Trova universo perdente e rimuovi char
             const loserUni = updatedUniverses.find(u => u.id === loser.universeId);
             const loserCharIndex = loserUni.characters.findIndex(c => c.id === loser.id);
             if(loserCharIndex > -1) {
                 const [eliminatedChar] = loserUni.characters.splice(loserCharIndex, 1);
                 loserUni.eliminated.push(eliminatedChar);
+
+                if (loserUni.characters.length === 0) {
+                     const activeCount = updatedUniverses.filter(u => u.characters.length > 0).length;
+                     loserUni.rank = activeCount + 1; 
+                }
             }
 
-            // Trova vincitore e incrementa kill
             const winnerUni = updatedUniverses.find(u => u.id === winner.universeId);
             const winnerChar = winnerUni.characters.find(c => c.id === winner.id);
             if(winnerChar) winnerChar.eliminations = (winnerChar.eliminations || 0) + 1;
 
-            // Pusha update su DB e chiudi modale
             await updateDoc(doc(db, "rooms", currentRoomId), {
                 gameData: JSON.stringify({ universes: updatedUniverses }),
                 currentChallenge: null,
                 narratorText: `${winner.name} vince con ${Math.max(votesC1, votesC2)} voti!`
             });
-            
-            // Resetta voti per tutti
-             // (Opzionale: iterare su collection players e settare vote: null, per pulizia)
         };
 
-
-        // --- RENDERING ---
+        function updateLeaderboard() {
+            const list = document.getElementById('provisional-list');
+            if(!list) return;
+            
+            const sorted = [...localGameData.universes].sort((a, b) => b.characters.length - a.characters.length);
+            
+            list.innerHTML = sorted.map(u => `
+                <div class="flex items-center justify-between text-[10px] ${u.characters.length===0?'opacity-30':''}">
+                    <div class="flex items-center gap-1 truncate">
+                        <img src="${u.image}" class="w-4 h-4 rounded-full object-contain bg-black/40">
+                        <span class="truncate font-bold text-gray-300">${u.name}</span>
+                    </div>
+                    <span class="font-black text-cyan-400">${u.characters.length}</span>
+                </div>`
+            ).join('');
+        }
 
         function renderStands() {
             const container = document.getElementById('stands');
@@ -715,22 +854,44 @@
             const modal = document.getElementById('winner-modal');
             const winner = localGameData.universes.find(u => u.characters.length > 0);
             
+            const allUniverses = [...localGameData.universes].map(u => {
+                if (u.characters.length > 0) return { ...u, rank: 1 };
+                return u;
+            });
+            
+            allUniverses.sort((a, b) => (a.rank || 99) - (b.rank || 99));
+
             document.getElementById('winner-content').innerHTML = `
                 <h1 class="text-6xl font-black text-yellow-400 zeno-glow uppercase mb-8">TORNEO CONCLUSO</h1>
                 <h2 class="text-3xl text-white mb-8">VINCITORE: ${winner ? winner.name : 'NESSUNO'}</h2>
-                <button class="btn-primary" onclick="location.reload()">Torna alla Lobby</button>
+                
+                <div class="max-w-2xl mx-auto bg-gray-900/80 rounded-xl p-6 border border-gray-700 max-h-[50vh] overflow-y-auto custom-scroll">
+                    <h3 class="text-xl text-cyan-400 font-bold mb-4 uppercase tracking-widest border-b border-gray-700 pb-2">Classifica Finale</h3>
+                    <div class="space-y-2">
+                        ${allUniverses.map(u => `
+                            <div class="flex items-center justify-between bg-black/40 p-3 rounded border ${u.rank === 1 ? 'border-yellow-500/50 bg-yellow-500/10' : 'border-gray-700'}">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl font-black ${u.rank === 1 ? 'text-yellow-400' : 'text-gray-500'} w-8 text-center">${u.rank || '-'}</span>
+                                    <img src="${u.image}" class="w-8 h-8 rounded-full bg-black object-contain border border-gray-600">
+                                    <span class="font-bold text-white text-left">${u.name}</span>
+                                </div>
+                                ${u.rank === 1 ? '<span class="text-xs font-bold text-yellow-400 uppercase bg-yellow-400/20 px-2 py-1 rounded">Vincitore</span>' : '<span class="text-xs text-gray-500">Eliminato</span>'}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <button class="btn-primary mt-8 py-3 px-8" onclick="location.reload()">Torna alla Lobby</button>
             `;
             modal.classList.remove('hidden');
         }
 
-        // --- CHAT SYSTEM ---
         window.sendChat = async (e) => {
             e.preventDefault();
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
             if(!text) return;
             
-            // Recupera nickname corrente (da localPlayers)
             const myData = localPlayers[currentUser.uid];
             const senderName = myData ? myData.nickname : "Anonimo";
 
