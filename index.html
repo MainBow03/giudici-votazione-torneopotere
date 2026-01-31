@@ -94,10 +94,21 @@
             </div>
         </div>
 
-        <!-- Classifica Provvisoria -->
-        <div id="provisional-leaderboard" class="fixed top-5 right-5 z-50 bg-black/70 p-3 rounded-lg w-48 hidden border border-purple-500/30">
-            <h4 class="text-center text-[10px] font-bold mb-2 text-purple-300 uppercase">Classifica Team</h4>
-            <div id="provisional-list" class="space-y-1"></div>
+        <!-- PANNELLO CLASSIFICHE (DX) -->
+        <div id="leaderboards-panel" class="fixed top-5 right-5 z-50 flex flex-col gap-2 items-end pointer-events-none">
+            
+            <!-- Classifica Team -->
+            <div id="provisional-leaderboard" class="bg-black/80 backdrop-blur-sm p-3 rounded-lg w-48 hidden border border-purple-500/30 pointer-events-auto transition-all">
+                <h4 class="text-center text-[10px] font-bold mb-2 text-purple-300 uppercase tracking-widest border-b border-purple-500/20 pb-1">Sopravvivenza</h4>
+                <div id="provisional-list" class="space-y-1"></div>
+            </div>
+
+            <!-- Classifica Top Killers (NEW) -->
+            <div id="killers-leaderboard" class="bg-black/80 backdrop-blur-sm p-3 rounded-lg w-48 hidden border border-red-500/30 pointer-events-auto transition-all mt-2">
+                <h4 class="text-center text-[10px] font-bold mb-2 text-red-400 uppercase tracking-widest border-b border-red-500/20 pb-1">Top 6 Killers</h4>
+                <div id="killers-list" class="space-y-1"></div>
+            </div>
+
         </div>
 
         <!-- Narratore -->
@@ -183,6 +194,11 @@
 
     <!-- MODALE ANIMAZIONE SELEZIONE (SUSPENSE) -->
     <div id="selection-modal" class="fixed inset-0 z-[140] modal-bg flex items-center justify-center hidden p-4">
+        <!-- Tasto Velocizza -->
+        <button onclick="speedUpAnimation()" class="absolute top-4 left-4 z-[200] text-gray-500 hover:text-white hover:border-white border border-gray-600 px-4 py-2 rounded text-xs uppercase font-bold tracking-widest bg-black/50 backdrop-blur transition-all flex items-center gap-2">
+            <span class="text-lg">⏩</span> Velocizza
+        </button>
+
         <div id="selection-content" class="text-center w-full">
             <h2 id="selection-title" class="text-3xl md:text-5xl font-black mb-8 uppercase text-cyan-400 italic">Estrazione...</h2>
             <div id="universe-selector" class="flex flex-wrap justify-center gap-6 mb-12"></div>
@@ -192,11 +208,11 @@
 
     <!-- MODALE SFIDA / VOTAZIONE -->
     <div id="challenge-modal" class="fixed inset-0 z-[150] modal-bg flex items-center justify-center hidden p-4">
-        <div class="w-full max-w-5xl text-center">
-            <div id="event-badge" class="hidden inline-block bg-yellow-500 text-black font-black px-3 py-1 rounded text-xs mb-4 uppercase">Evento Speciale</div>
-            <h2 id="challenge-title" class="text-4xl md:text-6xl font-black text-white uppercase italic mb-8 drop-shadow-[0_0_10px_rgba(255,0,0,0.8)]">VOTA IL VINCITORE!</h2>
+        <div class="w-full max-w-6xl text-center">
+            <div id="event-badge" class="hidden inline-block bg-yellow-500 text-black font-black px-3 py-1 rounded text-xs mb-4 uppercase animate-bounce">Evento Speciale</div>
+            <h2 id="challenge-title" class="text-4xl md:text-5xl font-black text-white uppercase italic mb-8 drop-shadow-[0_0_10px_rgba(255,0,0,0.8)]">VOTA IL VINCITORE!</h2>
             
-            <div id="challenge-content" class="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16">
+            <div id="challenge-content" class="flex flex-wrap items-center justify-center gap-4 md:gap-8">
                 <!-- Sfidanti iniettati via JS -->
             </div>
 
@@ -218,7 +234,7 @@
 
     <!-- MODALE VINCITORE -->
     <div id="winner-modal" class="fixed inset-0 z-[160] bg-black flex items-center justify-center hidden p-4">
-        <div id="winner-content" class="text-center w-full max-w-4xl"></div>
+        <div id="winner-content" class="text-center w-full max-w-[90vw]"></div>
     </div>
 
     <!-- FIREBASE & GAME LOGIC -->
@@ -249,7 +265,8 @@
         let localGameData = { universes: [] };
         let localPlayers = {};
         let localLastChallengeId = null; 
-        let currentChallengeId = null; 
+        let currentChallengeId = null;
+        let isSpeedUp = false; // Flag per velocizzare animazione
         
         // UTILS
         const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -263,6 +280,12 @@
         window.toggleChat = () => {
             document.getElementById('chat-container').classList.toggle('collapsed');
         };
+
+        window.speedUpAnimation = () => {
+            isSpeedUp = true;
+        };
+
+        const delay = (ms) => new Promise(r => setTimeout(r, isSpeedUp ? 50 : ms)); // Delay helper che rispetta lo speedup
 
         // --- AUTHENTICATION ---
         signInAnonymously(auth).catch((error) => {
@@ -386,10 +409,13 @@
                 localGameData = JSON.parse(data.gameData);
                 renderStands();
                 updateLeaderboard(); 
+                updateKillersLeaderboard(); // Aggiorna top killer
             }
 
             if (data.status === 'setup') {
                 document.getElementById('provisional-leaderboard').classList.add('hidden');
+                document.getElementById('killers-leaderboard').classList.add('hidden');
+                
                 if (isHost) {
                     document.getElementById('setup-modal').classList.remove('hidden');
                     if (document.getElementById('setup-container').children.length === 0) {
@@ -402,6 +428,7 @@
                 document.getElementById('setup-modal').classList.add('hidden');
                 document.getElementById('waiting-setup-modal').classList.add('hidden');
                 document.getElementById('provisional-leaderboard').classList.remove('hidden');
+                document.getElementById('killers-leaderboard').classList.remove('hidden');
                 
                 if (isHost) {
                     document.getElementById('host-controls').classList.remove('hidden');
@@ -439,6 +466,8 @@
         // --- ANIMATION & SUSPENSE LOGIC ---
         
         async function playSelectionSequence(challenge) {
+            isSpeedUp = false; // Reset flag velocità
+            
             const activeUniverses = localGameData.universes.filter(u => u.characters.length > 0);
             if(activeUniverses.length === 0) return;
 
@@ -451,44 +480,43 @@
             document.getElementById('challenge-modal').classList.add('hidden');
             modal.style.display = 'flex';
             
-            // --- FASE 1: SFIDANTE 1 ---
-            title.textContent = "ESTRAZIONE: SFIDANTE 1";
+            // Render universi (statico per ora)
             uniSel.innerHTML = activeUniverses.map(u => `<img src="${u.image}" id="uni-sel-${u.id}" class="w-20 h-20 rounded-full border-4 border-transparent object-contain bg-black/20">`).join('');
-            charSel.innerHTML = '';
+            
+            // ESEGUI ANIMAZIONE PER OGNI PARTECIPANTE
+            // Se è Battle Royale o Tradimento, la logica di visualizzazione cambia leggermente
+            // Ma per semplicità usiamo un loop sequenziale
+            
+            const participants = challenge.participants;
 
-            const uniEls = activeUniverses.map(u => document.getElementById(`uni-sel-${u.id}`));
-            await runSelectorAnimation(uniEls, challenge.c1.universeId); // Target U1
-            
-            // Mostra Guerrieri U1
-            const u1 = localGameData.universes.find(u => u.id === challenge.c1.universeId);
-            charSel.innerHTML = u1.characters.map(c => `
-                <div id="char-sel-${c.id}" class="text-center p-2 border-4 border-transparent">
-                    <img src="${c.image}" class="w-24 h-24 object-contain bg-black/20 rounded-lg">
-                    <p class="text-[10px] mt-1 uppercase font-bold text-white">${c.name}</p>
-                </div>`).join('');
-            const charEls = u1.characters.map(c => document.getElementById(`char-sel-${c.id}`));
-            await runSelectorAnimation(charEls, challenge.c1.id); // Target C1
-            
-            await new Promise(r => setTimeout(r, 1200)); // Pausa più lunga
+            for (let i = 0; i < participants.length; i++) {
+                const p = participants[i];
+                const pNum = i + 1;
+                
+                title.textContent = `ESTRAZIONE: COMBATTENTE ${pNum}`;
+                charSel.innerHTML = ''; // Pulisci char precedenti (o lasciali se vuoi effetto accumulo)
+                
+                // Anima Universi
+                const uniEls = activeUniverses.map(u => document.getElementById(`uni-sel-${u.id}`));
+                await runSelectorAnimation(uniEls, p.universeId);
+                
+                // Mostra Guerrieri dell'Universo scelto
+                const u = localGameData.universes.find(u => u.id === p.universeId);
+                charSel.innerHTML = u.characters.map(c => `
+                    <div id="char-sel-${c.id}" class="text-center p-2 border-4 border-transparent">
+                        <img src="${c.image}" class="w-24 h-24 object-contain bg-black/20 rounded-lg">
+                        <p class="text-[10px] mt-1 uppercase font-bold text-white">${c.name}</p>
+                    </div>`).join('');
+                
+                const charEls = u.characters.map(c => document.getElementById(`char-sel-${c.id}`));
+                await runSelectorAnimation(charEls, p.id);
+                
+                // Mostra il guerriero selezionato in grande per un attimo?
+                // Per ora semplice pausa
+                await delay(800);
+            }
 
-            // --- FASE 2: SFIDANTE 2 ---
-            title.textContent = "ESTRAZIONE: SFIDANTE 2";
-            uniSel.innerHTML = activeUniverses.map(u => `<img src="${u.image}" id="uni-sel-${u.id}" class="w-20 h-20 rounded-full border-4 border-transparent object-contain bg-black/20">`).join('');
-            charSel.innerHTML = '';
-            
-            const uniEls2 = activeUniverses.map(u => document.getElementById(`uni-sel-${u.id}`));
-            await runSelectorAnimation(uniEls2, challenge.c2.universeId); // Target U2
-            
-            const u2 = localGameData.universes.find(u => u.id === challenge.c2.universeId);
-             charSel.innerHTML = u2.characters.map(c => `
-                <div id="char-sel-${c.id}" class="text-center p-2 border-4 border-transparent">
-                    <img src="${c.image}" class="w-24 h-24 object-contain bg-black/20 rounded-lg">
-                    <p class="text-[10px] mt-1 uppercase font-bold text-white">${c.name}</p>
-                </div>`).join('');
-            const charEls2 = u2.characters.map(c => document.getElementById(`char-sel-${c.id}`));
-            await runSelectorAnimation(charEls2, challenge.c2.id); // Target C2
-
-            await new Promise(r => setTimeout(r, 1500));
+            await delay(500);
             
             // Fine animazione
             modal.style.display = 'none';
@@ -503,6 +531,9 @@
                 let last = null;
                 
                 function animate() {
+                    // Controlla velocità dinamica
+                    if(isSpeedUp) speed = 20;
+
                     if (last) last.classList.remove('selection-box');
                     
                     const el = elements[i] || elements[0];
@@ -517,9 +548,9 @@
                         cycles++; 
                     }
                     
-                    if (cycles > 1) speed += 40; // Rallenta progressivamente
+                    if(!isSpeedUp && cycles > 1) speed += 40; // Rallenta progressivamente solo se non speedUp
                     
-                    if (speed > 500) {
+                    if (speed > 500 || (isSpeedUp && cycles > 2)) {
                         // Cerca target e ferma
                         const targetEl = elements.find(e => e.id.endsWith(targetId));
                         if(targetEl) {
@@ -528,7 +559,7 @@
                             setTimeout(() => {
                                 targetEl.classList.remove('selected-flash');
                                 resolve();
-                            }, 1000);
+                            }, isSpeedUp ? 100 : 1000);
                         } else {
                              resolve();
                         }
@@ -628,48 +659,138 @@
         // Solo HOST chiama questo
         window.startRound = async () => {
             const activeUniverses = localGameData.universes.filter(u => u.characters.length > 0);
-            
-            if (activeUniverses.length < 2) {
-                await updateDoc(doc(db, "rooms", currentRoomId), { status: 'ended' });
-                return;
+            const totalChars = activeUniverses.reduce((acc, u) => acc + u.characters.length, 0);
+
+            if (activeUniverses.length < 1 || totalChars < 2) {
+                // Fine torneo se c'è solo 1 universo (se > 1 char in quell'uni, potremmo fare tradimento finale, ma semplifichiamo)
+                if(activeUniverses.length === 1 && activeUniverses[0].characters.length === 1) {
+                     await updateDoc(doc(db, "rooms", currentRoomId), { status: 'ended' });
+                     return;
+                }
+                // Se solo 1 universo ma più char, forza Tradimento
             }
 
-            const u1 = activeUniverses[Math.floor(Math.random() * activeUniverses.length)];
-            const c1 = u1.characters[Math.floor(Math.random() * u1.characters.length)];
+            // DECISIONE TIPO EVENTO
+            const rand = Math.random();
+            let type = 'normal';
+            let participants = [];
             
-            const otherUniverses = activeUniverses.filter(u => u.id !== u1.id);
-            const u2 = otherUniverses[Math.floor(Math.random() * otherUniverses.length)];
-            const c2 = u2.characters[Math.floor(Math.random() * u2.characters.length)];
+            // Possibilità Eventi
+            const canDoBetrayal = activeUniverses.some(u => u.characters.length >= 2);
+            const canDoRoyale = totalChars >= 3;
+
+            if (canDoRoyale && rand > 0.85) {
+                type = 'royale';
+            } else if (canDoBetrayal && rand > 0.65) {
+                type = 'betrayal';
+            } else {
+                type = 'normal';
+            }
+
+            // Costruzione Partecipanti
+            if (type === 'normal') {
+                // Necessita 2 universi diversi
+                if (activeUniverses.length < 2) {
+                     // Fallback a betrayal se possibile, altrimenti royale, altrimenti endgame
+                     if(canDoBetrayal) type = 'betrayal';
+                     else return await updateDoc(doc(db, "rooms", currentRoomId), { status: 'ended' });
+                } else {
+                    const u1 = activeUniverses[Math.floor(Math.random() * activeUniverses.length)];
+                    const c1 = u1.characters[Math.floor(Math.random() * u1.characters.length)];
+                    
+                    const otherUniverses = activeUniverses.filter(u => u.id !== u1.id);
+                    const u2 = otherUniverses[Math.floor(Math.random() * otherUniverses.length)];
+                    const c2 = u2.characters[Math.floor(Math.random() * u2.characters.length)];
+                    participants = [c1, c2];
+                }
+            }
+            
+            if (type === 'betrayal') {
+                // Scegli universo con >= 2 char
+                const candidates = activeUniverses.filter(u => u.characters.length >= 2);
+                if (candidates.length === 0) {
+                     // Fallback
+                     return startRound(); // Riprova (ricorsivo semplice)
+                }
+                const u = candidates[Math.floor(Math.random() * candidates.length)];
+                // Shuffle chars
+                const shuffled = [...u.characters].sort(() => 0.5 - Math.random());
+                participants = [shuffled[0], shuffled[1]];
+            }
+
+            if (type === 'royale') {
+                // Prendi 3 o 4 char random da chiunque
+                let pool = [];
+                activeUniverses.forEach(u => pool.push(...u.characters));
+                // Shuffle
+                pool.sort(() => 0.5 - Math.random());
+                // Decide 3 or 4
+                const count = (pool.length >= 4 && Math.random() > 0.5) ? 4 : 3;
+                participants = pool.slice(0, count);
+            }
 
             const challengeId = Date.now().toString();
+            
+            // Testo narratore
+            let narratorText = "";
+            if(type === 'normal') narratorText = `Scontro: ${participants[0].name} VS ${participants[1].name}`;
+            if(type === 'betrayal') narratorText = `TRADIMENTO! ${participants[0].name} deve affrontare ${participants[1].name}!`;
+            if(type === 'royale') narratorText = `BATTLE ROYALE! ${participants.length} Guerrieri nell'arena!`;
 
             await updateDoc(doc(db, "rooms", currentRoomId), {
                 currentChallenge: {
                     id: challengeId,
-                    c1: c1,
-                    c2: c2,
-                    type: 'normal',
+                    participants: participants, // New generic array
+                    c1: participants[0], // Keep for legacy compat in other funcs if needed
+                    c2: participants[1], 
+                    type: type,
                     startTime: serverTimestamp()
                 },
-                narratorText: `Scontro: ${c1.name} (${u1.name}) VS ${c2.name} (${u2.name})`
+                narratorText: narratorText
             });
         };
 
         function openChallengeModal(challengeData) {
             const modal = document.getElementById('challenge-modal');
             const container = document.getElementById('challenge-content');
+            const badge = document.getElementById('event-badge');
             
             // RESET VOTE UI FORZATO
             document.getElementById('voters-avatars').innerHTML = '';
             document.getElementById('vote-count-text').textContent = '0 voti';
 
-            container.innerHTML = `
-                ${renderChallengerCard(challengeData.c1, 'blue')}
-                <div class="text-4xl font-black text-white italic">VS</div>
-                ${renderChallengerCard(challengeData.c2, 'red')}
-            `;
+            // Configurazione Badge Evento
+            badge.classList.remove('hidden');
+            if (challengeData.type === 'normal') {
+                badge.classList.add('hidden');
+            } else if (challengeData.type === 'betrayal') {
+                badge.textContent = "⚠️ TRADIMENTO ⚠️";
+                badge.className = "inline-block bg-red-600 text-white font-black px-3 py-1 rounded text-xs mb-4 uppercase animate-pulse border border-red-400";
+            } else if (challengeData.type === 'royale') {
+                badge.textContent = "🔥 BATTLE ROYALE 🔥";
+                badge.className = "inline-block bg-yellow-500 text-black font-black px-3 py-1 rounded text-xs mb-4 uppercase animate-bounce border border-yellow-300";
+            }
 
-            document.getElementById('challenge-title').textContent = challengeData.type === 'normal' ? "CHI DEVE VINCERE?" : challengeData.type.toUpperCase();
+            // Rendering Sfidanti Dinamico
+            const ps = challengeData.participants || [challengeData.c1, challengeData.c2];
+            
+            let html = '';
+            ps.forEach((p, index) => {
+                // Colore diverso per ogni card in Royale
+                const colors = ['blue', 'red', 'green', 'purple'];
+                const color = colors[index % colors.length];
+                
+                html += renderChallengerCard(p, color);
+                
+                // Aggiungi VS se non è l'ultimo
+                if (index < ps.length - 1) {
+                     html += `<div class="text-2xl md:text-4xl font-black text-gray-500 italic self-center">VS</div>`;
+                }
+            });
+            container.innerHTML = html;
+
+            document.getElementById('challenge-title').textContent = 
+                challengeData.type === 'royale' ? "CHI SOPRAVVIVE?" : "CHI DEVE VINCERE?";
             
             modal.classList.remove('hidden');
 
@@ -681,22 +802,31 @@
                 document.getElementById('client-vote-msg').classList.remove('hidden');
             }
             
-            // Aggiorna subito lo stato voti (nel caso arrivi in ritardo)
+            // Aggiorna subito lo stato voti
             updateVoteUI(Object.values(localPlayers));
         }
 
         function renderChallengerCard(char, colorClass) {
-            const borderColor = colorClass === 'blue' ? 'border-cyan-500' : 'border-red-500';
-            const shadow = colorClass === 'blue' ? 'shadow-cyan-500/50' : 'shadow-red-500/50';
+            const borderColors = {
+                'blue': 'border-cyan-500', 'red': 'border-red-500', 
+                'green': 'border-green-500', 'purple': 'border-purple-500'
+            };
+            const shadowColors = {
+                'blue': 'shadow-cyan-500/50', 'red': 'shadow-red-500/50', 
+                'green': 'shadow-green-500/50', 'purple': 'shadow-purple-500/50'
+            };
+            
+            const bc = borderColors[colorClass] || 'border-gray-500';
+            const sc = shadowColors[colorClass] || 'shadow-gray-500/50';
             
             return `
-                <div class="text-center group">
-                    <div class="w-48 h-48 md:w-64 md:h-64 rounded-xl border-4 ${borderColor} ${shadow} bg-black/40 flex items-center justify-center overflow-hidden mb-4 shadow-lg transition-transform hover:scale-105">
+                <div class="text-center group flex-1 min-w-[140px]">
+                    <div class="w-32 h-32 md:w-48 md:h-48 mx-auto rounded-xl border-4 ${bc} ${sc} bg-black/40 flex items-center justify-center overflow-hidden mb-2 shadow-lg transition-transform hover:scale-105">
                         <img src="${char.image}" class="max-w-full max-h-full object-contain">
                     </div>
-                    <p class="text-2xl font-black text-white">${char.name}</p>
-                    <p class="text-gray-400 uppercase text-xs mb-4">${char.universeName}</p>
-                    <button class="btn-primary py-2 px-8 w-full" onclick="voteFor('${char.id}')">VOTA</button>
+                    <p class="text-lg md:text-xl font-black text-white truncate max-w-[150px] mx-auto">${char.name}</p>
+                    <p class="text-gray-400 uppercase text-[10px] mb-2">${char.universeName}</p>
+                    <button class="btn-primary py-1 px-4 w-full text-xs" onclick="voteFor('${char.id}')">VOTA</button>
                 </div>
             `;
         }
@@ -715,6 +845,7 @@
             btns.forEach(b => {
                 b.textContent = "VOTO REGISTRATO";
                 b.disabled = true;
+                b.classList.add('opacity-50');
             });
         };
 
@@ -725,10 +856,8 @@
             avatarContainer.innerHTML = '';
             let voteCount = 0;
 
-            // Converto in array se è oggetto (fallback)
             const playerArray = Array.isArray(players) ? players : Object.values(players);
 
-            // Filtra voti validi per la sfida CORRENTE
             const validVoters = playerArray.filter(p => 
                 p.voteData && 
                 p.voteData.challengeId === currentChallengeId
@@ -771,41 +900,77 @@
             const challenge = roomSnap.data().currentChallenge;
             if(!challenge) return;
 
-            let votesC1 = 0;
-            let votesC2 = 0;
-            
+            // 1. Conta voti per ogni partecipante
+            const participants = challenge.participants || [challenge.c1, challenge.c2];
+            let voteMap = {};
+            participants.forEach(p => voteMap[p.id] = 0);
+
             Object.values(localPlayers).forEach(p => {
                 if(p.voteData && p.voteData.challengeId === challenge.id) {
-                    if(p.voteData.charId === challenge.c1.id) votesC1++;
-                    if(p.voteData.charId === challenge.c2.id) votesC2++;
+                    if(voteMap[p.voteData.charId] !== undefined) {
+                        voteMap[p.voteData.charId]++;
+                    }
                 }
             });
 
-            let winner = votesC1 >= votesC2 ? challenge.c1 : challenge.c2;
-            let loser = votesC1 >= votesC2 ? challenge.c2 : challenge.c1;
-
-            const updatedUniverses = [...localGameData.universes];
+            // 2. Trova Vincitore (Max Votes)
+            let winnerId = null;
+            let maxVotes = -1;
             
-            const loserUni = updatedUniverses.find(u => u.id === loser.universeId);
-            const loserCharIndex = loserUni.characters.findIndex(c => c.id === loser.id);
-            if(loserCharIndex > -1) {
-                const [eliminatedChar] = loserUni.characters.splice(loserCharIndex, 1);
-                loserUni.eliminated.push(eliminatedChar);
-
-                if (loserUni.characters.length === 0) {
-                     const activeCount = updatedUniverses.filter(u => u.characters.length > 0).length;
-                     loserUni.rank = activeCount + 1; 
+            // Gestione pareggi randomizzata
+            const shuffledPart = [...participants].sort(() => 0.5 - Math.random());
+            shuffledPart.forEach(p => {
+                const v = voteMap[p.id];
+                if (v > maxVotes) {
+                    maxVotes = v;
+                    winnerId = p.id;
                 }
-            }
+            });
 
+            const winner = participants.find(p => p.id === winnerId);
+            const losers = participants.filter(p => p.id !== winnerId);
+
+            // 3. Processa Eliminazioni
+            const updatedUniverses = [...localGameData.universes];
+            let eliminationText = "";
+
+            losers.forEach(loser => {
+                const loserUni = updatedUniverses.find(u => u.id === loser.universeId);
+                const loserCharIndex = loserUni.characters.findIndex(c => c.id === loser.id);
+                if(loserCharIndex > -1) {
+                    const [eliminatedChar] = loserUni.characters.splice(loserCharIndex, 1);
+                    eliminatedChar.eliminatedAt = Date.now(); // Aggiunto timestamp per classifica
+                    loserUni.eliminated.push(eliminatedChar);
+
+                    // Calc Rank
+                    if (loserUni.characters.length === 0) {
+                         const activeCount = updatedUniverses.filter(u => u.characters.length > 0).length;
+                         loserUni.rank = activeCount + 1; 
+                    }
+                }
+            });
+
+            // 4. Assegna Kills
             const winnerUni = updatedUniverses.find(u => u.id === winner.universeId);
             const winnerChar = winnerUni.characters.find(c => c.id === winner.id);
-            if(winnerChar) winnerChar.eliminations = (winnerChar.eliminations || 0) + 1;
+            if(winnerChar) {
+                // In Battle Royale, il vincitore prende le kill di TUTTI gli eliminati
+                winnerChar.eliminations = (winnerChar.eliminations || 0) + losers.length;
+            }
+
+            // Testo Finale
+            if (challenge.type === 'royale') {
+                eliminationText = `${winner.name} sopravvive al caos! ${losers.length} eliminati!`;
+            } else if (challenge.type === 'betrayal') {
+                eliminationText = `${winner.name} sacrifica il compagno e avanza!`;
+            } else {
+                eliminationText = `${winner.name} vince lo scontro!`;
+            }
 
             await updateDoc(doc(db, "rooms", currentRoomId), {
                 gameData: JSON.stringify({ universes: updatedUniverses }),
                 currentChallenge: null,
-                narratorText: `${winner.name} vince con ${Math.max(votesC1, votesC2)} voti!`
+                narratorText: eliminationText
             });
         };
 
@@ -826,6 +991,44 @@
             ).join('');
         }
 
+        // --- NEW: TOP KILLERS LEADERBOARD ---
+        function updateKillersLeaderboard() {
+            const list = document.getElementById('killers-list');
+            if(!list) return;
+
+            let allChars = [];
+            localGameData.universes.forEach(u => {
+                // Guerrieri attivi
+                u.characters.forEach(c => allChars.push({...c, status: 'active', color: u.bgColor}));
+                // Guerrieri eliminati (che mantengono il conto kill)
+                if(u.eliminated) {
+                    u.eliminated.forEach(c => allChars.push({...c, status: 'eliminated', color: u.bgColor}));
+                }
+            });
+
+            // Filtra chi ha almeno 1 kill e ordina decrescente
+            const killers = allChars.filter(c => (c.eliminations || 0) > 0)
+                                    .sort((a,b) => b.eliminations - a.eliminations)
+                                    .slice(0, 6); // Top 6
+
+            if (killers.length === 0) {
+                 list.innerHTML = '<p class="text-[10px] text-gray-500 text-center italic">Nessuna eliminazione</p>';
+                 return;
+            }
+
+            list.innerHTML = killers.map(c => `
+                <div class="flex items-center justify-between text-[10px] ${c.status === 'eliminated' ? 'opacity-50 grayscale' : ''}">
+                    <div class="flex items-center gap-2 truncate max-w-[80%]">
+                        <img src="${c.image}" class="w-5 h-5 rounded-full border border-gray-500 bg-black object-contain">
+                        <span class="truncate font-bold text-gray-200">${c.name}</span>
+                    </div>
+                    <span class="font-black text-red-500 text-xs flex items-center gap-1">
+                        ${c.eliminations} <span class="text-[8px] text-gray-500">KO</span>
+                    </span>
+                </div>
+            `).join('');
+        }
+
         function renderStands() {
             const container = document.getElementById('stands');
             container.innerHTML = localGameData.universes.map(u => {
@@ -841,8 +1044,9 @@
                     <p class="text-[10px] text-gray-400 mb-2 uppercase">Guerrieri: <span class="font-bold text-white">${u.characters.length}</span></p>
                     <div class="grid grid-cols-4 gap-1">
                          ${u.eliminated.map(c => `
-                            <div class="aspect-square bg-black/30 rounded border border-red-500/20 overflow-hidden relative">
+                            <div class="aspect-square bg-black/30 rounded border border-red-500/20 overflow-hidden relative group">
                                 <img src="${c.image}" class="w-full h-full object-contain grayscale opacity-50">
+                                ${(c.eliminations||0) > 0 ? `<div class="absolute top-0 right-0 bg-red-600 text-white text-[8px] font-bold px-1 rounded-bl shadow">★${c.eliminations}</div>` : ''}
                             </div>
                          `).join('')}
                     </div>
@@ -861,27 +1065,116 @@
             
             allUniverses.sort((a, b) => (a.rank || 99) - (b.rank || 99));
 
+            // --- 1. CLASSIFICA KILLER (Mantenuta) ---
+            let allChars = [];
+            localGameData.universes.forEach(u => {
+                if (u.characters) u.characters.forEach(c => allChars.push({...c, uniName: u.name, uniColor: u.bgColor}));
+                if (u.eliminated) u.eliminated.forEach(c => allChars.push({...c, uniName: u.name, uniColor: u.bgColor}));
+            });
+            allChars.sort((a, b) => (b.eliminations || 0) - (a.eliminations || 0));
+            const topKillers = allChars.slice(0, 10);
+
+            // --- 2. CLASSIFICA GENERALE (Sopravvivenza) ---
+            let survivalRanking = [];
+            
+            // A. Sopravvissuti (1° Posto Pari Merito)
+            localGameData.universes.forEach(u => {
+                u.characters.forEach(c => {
+                    survivalRanking.push({...c, status: 'survivor', uniName: u.name, uniColor: u.bgColor, rankText: 'Vincitore'});
+                });
+            });
+
+            // B. Eliminati (Ordinati per timestamp descrescente = chi è uscito per ultimo)
+            let eliminatedList = [];
+            localGameData.universes.forEach(u => {
+                if(u.eliminated) {
+                    u.eliminated.forEach(c => {
+                        eliminatedList.push({...c, status: 'eliminated', uniName: u.name, uniColor: u.bgColor});
+                    });
+                }
+            });
+            eliminatedList.sort((a,b) => (b.eliminatedAt || 0) - (a.eliminatedAt || 0));
+
+            // Assegna posizioni (es. 2°, 3°...)
+            let currentPos = survivalRanking.length + 1; 
+            eliminatedList.forEach((c, index) => {
+                c.rankText = `${currentPos + index}°`;
+                survivalRanking.push(c);
+            });
+
+            // Prendi i primi 15 per visualizzazione
+            const topSurvival = survivalRanking.slice(0, 15);
+
+
             document.getElementById('winner-content').innerHTML = `
-                <h1 class="text-6xl font-black text-yellow-400 zeno-glow uppercase mb-8">TORNEO CONCLUSO</h1>
-                <h2 class="text-3xl text-white mb-8">VINCITORE: ${winner ? winner.name : 'NESSUNO'}</h2>
+                <h1 class="text-4xl md:text-6xl font-black text-yellow-400 zeno-glow uppercase mb-6">TORNEO CONCLUSO</h1>
+                <h2 class="text-xl md:text-3xl text-white mb-6">VINCITORE: ${winner ? winner.name : 'NESSUNO'}</h2>
                 
-                <div class="max-w-2xl mx-auto bg-gray-900/80 rounded-xl p-6 border border-gray-700 max-h-[50vh] overflow-y-auto custom-scroll">
-                    <h3 class="text-xl text-cyan-400 font-bold mb-4 uppercase tracking-widest border-b border-gray-700 pb-2">Classifica Finale</h3>
-                    <div class="space-y-2">
-                        ${allUniverses.map(u => `
-                            <div class="flex items-center justify-between bg-black/40 p-3 rounded border ${u.rank === 1 ? 'border-yellow-500/50 bg-yellow-500/10' : 'border-gray-700'}">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-2xl font-black ${u.rank === 1 ? 'text-yellow-400' : 'text-gray-500'} w-8 text-center">${u.rank || '-'}</span>
-                                    <img src="${u.image}" class="w-8 h-8 rounded-full bg-black object-contain border border-gray-600">
-                                    <span class="font-bold text-white text-left">${u.name}</span>
+                <div class="max-w-[95vw] mx-auto bg-gray-900/80 rounded-xl p-4 md:p-6 border border-gray-700 max-h-[70vh] overflow-y-auto custom-scroll grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+                    
+                    <!-- COLONNA 1: CLASSIFICA UNIVERSI -->
+                    <div class="bg-black/20 p-2 rounded">
+                        <h3 class="text-lg text-cyan-400 font-bold mb-3 uppercase tracking-widest border-b border-gray-700 pb-1 text-center">Universi</h3>
+                        <div class="space-y-1">
+                            ${allUniverses.map(u => `
+                                <div class="flex items-center justify-between bg-black/40 p-2 rounded border ${u.rank === 1 ? 'border-yellow-500/50 bg-yellow-500/10' : 'border-gray-700'}">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xl font-black ${u.rank === 1 ? 'text-yellow-400' : 'text-gray-500'} w-6 text-center">${u.rank || '-'}</span>
+                                        <img src="${u.image}" class="w-6 h-6 rounded-full bg-black object-contain border border-gray-600">
+                                        <span class="font-bold text-white text-xs">${u.name}</span>
+                                    </div>
+                                    ${u.rank === 1 ? '<span class="text-[8px] font-bold text-yellow-400 uppercase bg-yellow-400/20 px-1 py-0.5 rounded">Win</span>' : ''}
                                 </div>
-                                ${u.rank === 1 ? '<span class="text-xs font-bold text-yellow-400 uppercase bg-yellow-400/20 px-2 py-1 rounded">Vincitore</span>' : '<span class="text-xs text-gray-500">Eliminato</span>'}
-                            </div>
-                        `).join('')}
+                            `).join('')}
+                        </div>
                     </div>
+
+                    <!-- COLONNA 2: CLASSIFICA GENERALE (SURVIVAL) -->
+                    <div class="bg-black/20 p-2 rounded border-x border-gray-700/50">
+                        <h3 class="text-lg text-green-400 font-bold mb-3 uppercase tracking-widest border-b border-gray-700 pb-1 text-center">Classifica Generale</h3>
+                        <div class="space-y-1">
+                            ${topSurvival.map((c) => `
+                                <div class="flex items-center justify-between bg-black/40 p-2 rounded border ${c.status === 'survivor' ? 'border-yellow-500/30' : 'border-gray-800'} hover:bg-white/5 transition-colors">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-mono text-gray-400 w-8 text-right mr-1">${c.rankText}</span>
+                                        <img src="${c.image}" class="w-6 h-6 rounded-full bg-black object-contain border border-gray-600">
+                                        <div class="flex flex-col">
+                                            <span class="font-bold text-white text-xs truncate max-w-[100px]">${c.name}</span>
+                                            <span class="text-[8px] text-gray-500 uppercase">${c.uniName}</span>
+                                        </div>
+                                    </div>
+                                    ${c.status === 'survivor' ? '👑' : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- COLONNA 3: MVP / KILLERS -->
+                    <div class="bg-black/20 p-2 rounded">
+                        <h3 class="text-lg text-red-400 font-bold mb-3 uppercase tracking-widest border-b border-gray-700 pb-1 text-center">Top Killers</h3>
+                        <div class="space-y-1">
+                            ${topKillers.map((c, i) => `
+                                <div class="flex items-center justify-between bg-black/40 p-2 rounded border border-gray-800 hover:border-red-500/30 transition-colors">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg font-bold text-gray-600 w-6 text-center">${i+1}</span>
+                                        <img src="${c.image}" class="w-6 h-6 rounded-full bg-black object-contain border border-gray-600">
+                                        <div class="flex flex-col">
+                                            <span class="font-bold text-white text-xs truncate max-w-[100px]">${c.name}</span>
+                                            <span class="text-[8px] text-gray-500 uppercase">${c.uniName}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 bg-red-900/20 px-2 py-0.5 rounded">
+                                        <span class="font-black text-red-400 text-sm">${c.eliminations || 0}</span>
+                                        <span class="text-[8px] text-gray-500">KO</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
                 </div>
 
-                <button class="btn-primary mt-8 py-3 px-8" onclick="location.reload()">Torna alla Lobby</button>
+                <button class="btn-primary mt-6 py-3 px-8" onclick="location.reload()">Torna alla Lobby</button>
             `;
             modal.classList.remove('hidden');
         }
